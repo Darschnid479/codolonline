@@ -1,0 +1,37 @@
+# Project Dragon — Call of Duty Online Native PS4 Port
+# NEVER commit proprietary game assets, toolchains, or build artifacts!
+
+# Build directories & output packages
+build-pc/
+build-ps4/
+dist/
+logs/
+
+# Downloaded external research repositories and SDK toolchains
+research/
+toolchains/
+
+# User-provided proprietary Call of Duty Online 1.1.1.13 game files (NEVER redistribute)
+*.ff
+*.iwd
+*.iwi
+*.bk2
+*.bik
+*.exe
+*.dll
+*.flt
+*.asi
+codol-classic/
+client_shipRetail/
+main/
+miles/
+zone/
+
+# Editor / OS temporary files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+compile_commands.json
