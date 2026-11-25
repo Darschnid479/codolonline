@@ -34,7 +34,7 @@ set(DRAGON_PS4 TRUE CACHE BOOL "Building native PS4 OrbisOS target" FORCE)
 set(DRAGON_PS4_LINK_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/ps4-link.x" CACHE FILEPATH "Patched OpenOrbis linker script")
 
 set(_ps4_common_flags
-    "--target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -march=btver2 -D__PS4__ -D__ORBIS__ -D__OPENORBIS__ -DDRAGON_PS4 -D_BSD_SOURCE -D__BSD_VISIBLE -isysroot ${OO_PS4_TOOLCHAIN} -isystem ${OO_PS4_TOOLCHAIN}/include")
+    "--target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -march=btver2 -mno-red-zone -D__PS4__ -D__ORBIS__ -D__OPENORBIS__ -DDRAGON_PS4 -D_BSD_SOURCE -D__BSD_VISIBLE -isysroot ${OO_PS4_TOOLCHAIN} -isystem ${OO_PS4_TOOLCHAIN}/include")
 
 set(CMAKE_C_FLAGS_INIT "${_ps4_common_flags}")
 set(CMAKE_CXX_FLAGS_INIT "-nostdinc++ -isystem ${OO_PS4_TOOLCHAIN}/include/c++/v1 ${_ps4_common_flags} -fexceptions -fcxx-exceptions")
