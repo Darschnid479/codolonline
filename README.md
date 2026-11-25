@@ -21,6 +21,10 @@
 
 **Project Dragon** is an independent, clean-room native PlayStation 4 port of the discontinued Chinese *Call of Duty Online* (targeting the offline retail build `1.1.1.13`).
 
+### Offline gameplay reference
+
+Use [nucleur16/cod-offline-1.1.1.13](https://github.com/nucleur16/cod-offline-1.1.1.13/tree/cea5b76c258b5122934167bb7f19c1f6fefdc785) as the behavioral reference for the PS4 port. Its Windows client hosts the lobby and match locally. For gameplay acceptance, follow the player's route through Create Room, Ready, the match and the return to the offline lobby. Compare menus against the offline client's patched UI zones and input handlers. The PS4 project currently implements only part of this flow.
+
 ### Strict Architectural Principles
 - **No Wine / Proton**: No Windows runtime or translation layers.
 - **No Linux Runtime**: Runs natively on Sony OrbisOS (FreeBSD-derived kernel + POSIX runtime).
