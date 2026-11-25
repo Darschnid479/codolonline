@@ -34,7 +34,7 @@
 
 ## Authentic In-Engine Screenshots
 
-Rendered directly by Project Dragon's clean-room C++20 engine from original Call of Duty Online `1.1.1.13` FastFiles (v334) and encrypted `.iwd` image archives (no synthetic replacement geometry or generic textures):
+Rendered directly by Project Dragon's clean-room C++20 engine from original Call of Duty Online `1.1.1.13` FastFiles (v334) and encrypted `.iwd` image archives (no synthetic replacement geometry or generic textures). Captured on the **PC Debug build** (software rasterizer, 1280×720) with all developer overlays disabled — these are not PS4 captures.
 
 | **Nuketown (`mp_nuked`)** | **Tropical Crash (`mp_crash_tropical`)** |
 |:---:|:---:|
@@ -65,6 +65,21 @@ Rendered directly by Project Dragon's clean-room C++20 engine from original Call
 - **Weapons & Hit Registration**: Reads real `ASSET_TYPE_WEAPON` headers (e.g. `thundergun_zm`), weapon state timing (idle, fire, ADS, reload, switch), and raycast hit detection.
 - **Offline Server & Bot Navigation**: 20 Hz tick server parsing real `MapEnts` entity lumps, `mp_tdm_spawn*` spawn points, and waypoint pathing across `node_pathnode` graphs.
 - **GSC VM**: Clean-room cooperative thread VM executing map scripts (`thread`, `wait`, `waittill`, `notify`, `setDvar`).
+
+### 4. Authentic Visual Fidelity & Startup Pipeline
+Everything the player sees is loaded at runtime from the user's own client files — no AI-generated logos, redrawn wordmarks or invented menus.
+
+| Element | Original source (user's client) | Status |
+|---|---|---|
+| PS4 tile `icon0.png` | `codoMP_client_shipRetail.exe` → `RT_GROUP_ICON` ID `1` → `RT_ICON` ID `5` (64×64, 32-bit alpha), extracted locally by `extract_ps4_icon.py` | `IMPLEMENTED` |
+| Startup splash | root `splash.bmp` (800×510, shown by `Sys_ShowSplashWindow`) | `IMPLEMENTED` |
+| Loading screen | `patch_code_post_gfx_mp.ff` → `ui_mp/load.txt` (`menuDef load`) + `loadscreen_menu.iwi` | `IMPLEMENTED` |
+| Fonts | IW `Font_s` assets from `code_post_gfx_mp.ff` + `gamefonts_pc.iwi` / `devfonts_pc.iwi` | `IMPLEMENTED` |
+| Login / main-menu logo | Scaleform `codologin.gfx` (`loginView`) and `codo.gfx` (`logoView`) bitmap display lists | `IMPLEMENTED` (bitmaps only) |
+| Intro videos | `main/video/PUB_logo.bk2`, `CODO_logo.bk2` (Bink 2 `KB2i`) | `NOT_IMPLEMENTED` — headers parsed, decoder missing, logged as `[UI][UNFINISHED]` |
+| Scaleform ActionScript / vector shapes | AS3 `DoABC`, `DefineShape`, CJK `fonts_ingame.gfx`, `codohud.gfx` | `NOT_IMPLEMENTED` — logged as `[UI][UNFINISHED]` |
+
+The engine's own map selector, telemetry HUD, crosshair and bot boxes are **off by default** and only available as explicit developer tools (`--dev-map-menu`, `--dev-hud`, `--dev-crosshair`, `--dev-boxes`, or `L1+R1+TOUCHPAD` on PS4). The PS4 build is currently `COMPILED`; it has not yet been tested on hardware or in an emulator.
 
 ---
 
@@ -132,6 +147,7 @@ project-dragon/
 │   ├── assets/                            # Runtime key/wavelet extraction, FastFile v334, IWD/IWI cache
 │   ├── gfx/                               # Dual-path PS4 renderer (Piglet GLES2 + VideoOut direct-memory)
 │   ├── platform/                          # OrbisOS direct memory, pthreads, libScePad, libSceAudioOut, crash log
+│   ├── ui/                                # Authentic startup/UI loader (splash.bmp, IW Font_s/menuDef_t, Scaleform GFx bitmaps)
 │   └── world/                             # GfxWorld, ClipMap collision, MapEnts, PM_Move, Weapons, GSC VM
 ├── third_party/
 │   └── codol_zone_portable/               # MIT-derived FastFile v334 + IWD/IWI/Wavelet + pure C++20 crypto
@@ -140,7 +156,7 @@ project-dragon/
 │   │   ├── inspect_game.py                # Phase 1 PE/FastFile/IWD analyzer
 │   │   └── extract_ps4_icon.py            # Extracts authentic PS4 icon0.png from user's codoMP_client_shipRetail.exe
 │   └── dragon_validate/main.cpp           # Phase 3 cross-map automated asset validator
-├── tests/test_suite.cpp                   # Automated unit & integration tests (26/26 passing)
+├── tests/test_suite.cpp                   # Automated unit & integration tests (33/33 passing)
 ├── docs/
 │   ├── screenshots/                       # In-engine rendered map screenshots
 │   ├── TECHNICAL_RESEARCH_REPORT.md       # Empirical Phase 1 analysis & PS4 architecture report
@@ -149,9 +165,9 @@ project-dragon/
 ├── SETUP.bat / BUILD_PS4.bat / PACKAGE_PS4.bat / PACKAGE_PS4_ALL_IN_ONE.bat / BUILD_PC_DEBUG.bat / VALIDATE_ASSETS.bat
 └── scripts/
     ├── setup.sh                           # Download OpenOrbis v0.5.4 & host tool verification
-    ├── build_pc_debug.sh                  # Compile PC Debug binaries & run 26 automated tests
+    ├── build_pc_debug.sh                  # Compile PC Debug binaries & run 33 automated tests
     ├── build_ps4.sh                       # Cross-compile native PS4 eboot.bin (FSELF) & verify PT_LOAD
-    ├── package_ps4.sh                     # Package clean engine PKG (~6.4 MB, extracts icon0.png locally)
+    ├── package_ps4.sh                     # Package clean engine PKG (~6.9 MB, extracts icon0.png locally)
     ├── package_ps4_all_in_one.sh          # Package self-contained All-in-One PKG (~10 GB, personal use)
     └── validate_assets.sh                 # Run full-corpus map validation
 ```
@@ -169,13 +185,13 @@ sudo apt update && sudo apt install -y clang-18 lld-18 llvm-18 cmake ninja-build
 # 2. Setup OpenOrbis PS4 Toolchain v0.5.4 & LibOrbisPkg
 ./scripts/setup.sh
 
-# 3. Build PC Debug targets and execute all 26 automated tests
+# 3. Build PC Debug targets and execute all 33 automated tests
 ./scripts/build_pc_debug.sh
 
 # 4. Cross-compile native PS4 executable (build-ps4/eboot.bin)
 ./scripts/build_ps4.sh
 
-# 5a. Package clean engine PKG (dist/IV0000-DRGN00113_00-PROJECTDRAGON000.pkg, ~6.4 MB)
+# 5a. Package clean engine PKG (dist/IV0000-DRGN00113_00-PROJECTDRAGON000.pkg, ~6.9 MB)
 #     Extracts the authentic PS4 tile icon locally from your codoMP_client_shipRetail.exe:
 ./scripts/package_ps4.sh "/path/to/Call of Duty Online 1.1.1.13"
 
@@ -202,7 +218,7 @@ Run the automated batch scripts in sequence:
 ### Option A — Single All-in-One PKG (Plug-and-Play)
 1. Build using `./scripts/package_ps4_all_in_one.sh "<your-codol-dir>"` to generate `dist/all-in-one/IV0000-DRGN00113_00-PROJECTDRAGON000.pkg`.
 2. Install the `.pkg` on your PS4 via GoldHEN Package Installer.
-3. Launch **Project Dragon** (`DRGN00113`) directly from the home screen. The engine automatically mounts its internal `/app0/codol` asset tree with zero file copying needed.
+3. Launch **Call of Duty Online** (`DRGN00113`) directly from the home screen. The engine automatically mounts its internal `/app0/codol` asset tree with zero file copying needed.
 
 ### Option B — Clean Engine PKG + External Game Folder
 1. Build the lightweight **`dist/IV0000-DRGN00113_00-PROJECTDRAGON000.pkg`** (~6.9 MB) locally with `./scripts/package_ps4.sh "<your-codol-dir>"` (which extracts the authentic `icon0.png` tile from your `codoMP_client_shipRetail.exe`) and install via GoldHEN Package Installer.
