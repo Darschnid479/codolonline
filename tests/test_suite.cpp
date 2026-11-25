@@ -38,6 +38,42 @@ namespace
 		}
 	}
 
+	void test_login_placement()
+	{
+		dragon::ui::ScaleformGfxMovie movie;
+		movie.stage_x = -10;
+		movie.stage_y = -20;
+		movie.exports_by_name["loginView"] = 1;
+		movie.symbol_classes["buttonClass"] = 2;
+		dragon::ui::ScaleformPlacement root;
+		root.has_char = true;
+		root.char_id = 1;
+		root.tx = 30;
+		root.ty = 40;
+		root.sx = root.sy = 2;
+		movie.root_instances[7] = root;
+		dragon::ui::ScaleformPlacement button;
+		button.class_name = "buttonClass";
+		button.tx = 4;
+		button.ty = 5;
+		movie.sprites[1].frame0_places.push_back(button);
+		dragon::ui::ScaleformPlacement bitmap;
+		bitmap.has_char = true;
+		bitmap.char_id = 3;
+		movie.sprites[2].frame0_places.push_back(bitmap);
+		auto& image = movie.external_images[3];
+		image.width = image.height = 1;
+		image.texture = std::make_shared<dragon::assets::DecodedTexture>();
+		image.texture->width = image.texture->height = 1;
+		image.texture->rgba = {255, 255, 255, 255};
+		dragon::assets::AssetManager assets;
+		std::vector<dragon::gfx::UiDrawCmd> commands;
+		movie.emit_export("loginView", 1280, 960, assets, commands);
+		check(commands.size() == 1 && commands[0].x == 48 && commands[0].y == 70 &&
+			commands[0].w == 2 && commands[0].texture == image.texture.get(),
+			"Place a class-linked bitmap at the movie's root and frame origin");
+	}
+
 	void test_crypto_primitives()
 	{
 		std::cout << "--- Crypto (SHA-256, AES-192-CTR LE/BE, CRC-32) ---\n";
@@ -243,6 +279,7 @@ int main()
 	test_crypto_primitives();
 	test_collision_and_movement();
 	test_entities_and_gsc();
+	test_login_placement();
 	test_real_codol_install();
 	dragon::platform::shutdown();
 

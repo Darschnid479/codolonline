@@ -215,7 +215,7 @@ namespace dragon::ui
 			const bool has_name = (fl & 0x20) != 0;
 			const bool has_clip = (fl & 0x40) != 0;
 
-			if (tag == 70 && (fl2 & 0x08))
+			if (tag == 70 && ((fl2 & 0x08) || ((fl2 & 0x10) && has_char)))
 			{
 				const std::size_t start = pos;
 				while (pos < len && p[pos] != 0) ++pos;
@@ -485,6 +485,12 @@ namespace dragon::ui
 		};
 		std::vector<RawLayer> layers;
 
+		auto character_id = [&](const ScaleformPlacement& pl) -> std::uint16_t {
+			if (pl.has_char) return pl.char_id;
+			const auto symbol = symbol_classes.find(pl.class_name);
+			return symbol == symbol_classes.end() ? 0 : symbol->second;
+		};
+
 		auto walk = [&](auto&& self, std::uint16_t sprite_id,
 			float ptx, float pty, float psx, float psy,
 			float pr, float pg, float pb, float pa,
@@ -507,7 +513,8 @@ namespace dragon::ui
 				const float a = pa * pl.mul_a;
 				const gfx::UiBlendMode blend = (pl.blend_mode == 8) ? gfx::UiBlendMode::Additive : pblend;
 
-				if (!pl.has_char)
+				const auto child = character_id(pl);
+				if (!child)
 				{
 					if (!pl.class_name.empty() && unfinished_notes)
 					{
@@ -517,7 +524,7 @@ namespace dragon::ui
 					continue;
 				}
 
-				auto img_it = external_images.find(pl.char_id);
+				auto img_it = external_images.find(child);
 				if (img_it != external_images.end())
 				{
 					auto& ext = img_it->second;
@@ -553,14 +560,29 @@ namespace dragon::ui
 					continue;
 				}
 
-				if (sprites.find(pl.char_id) != sprites.end())
+				if (sprites.find(child) != sprites.end())
 				{
-					self(self, pl.char_id, tx, ty, sx, sy, r, g, b, a, blend, depth_guard + 1);
+					self(self, child, tx, ty, sx, sy, r, g, b, a, blend, depth_guard + 1);
 				}
 			}
 		};
 
-		walk(walk, it->second, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, gfx::UiBlendMode::Alpha, 0);
+		bool placed = false;
+		if (!center_sprite_on_screen)
+		{
+			for (const auto& [depth, instance] : root_instances)
+			{
+				if (instance.is_clip_mask || character_id(instance) != it->second) continue;
+				placed = true;
+				walk(walk, it->second, instance.tx, instance.ty, instance.sx, instance.sy,
+					instance.mul_r, instance.mul_g, instance.mul_b, instance.mul_a,
+					instance.blend_mode == 8 ? gfx::UiBlendMode::Additive : gfx::UiBlendMode::Alpha, 0);
+			}
+			if (!placed && unfinished_notes)
+				unfinished_notes->push_back("No direct first-frame root placement for " + export_name);
+		}
+		if (!placed)
+			walk(walk, it->second, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, gfx::UiBlendMode::Alpha, 0);
 		if (layers.empty()) return;
 
 		const float W = static_cast<float>(fb_w);
@@ -606,8 +628,8 @@ namespace dragon::ui
 			for (const auto& l : layers)
 			{
 				gfx::UiDrawCmd cmd{};
-				cmd.x = off_x + l.x * stage_scale;
-				cmd.y = off_y + l.y * stage_scale;
+				cmd.x = off_x + (l.x - stage_x) * stage_scale;
+				cmd.y = off_y + (l.y - stage_y) * stage_scale;
 				cmd.w = l.w * stage_scale;
 				cmd.h = l.h * stage_scale;
 				cmd.r = l.r; cmd.g = l.g; cmd.b = l.b; cmd.a = l.a;
@@ -897,6 +919,9 @@ namespace dragon::ui
 		const std::int32_t ymax = br.s(nbits);
 		br.align_byte();
 		std::size_t off = br.byte_pos() + 4; // skip fps (2B) + frameCount (2B)
+		out.stage_x = static_cast<float>(xmin) / 20.0f;
+		out.stage_y = static_cast<float>(ymin) / 20.0f;
+		bool first_root_frame = true;
 		out.stage_width = static_cast<float>(xmax - xmin) / 20.0f;
 		out.stage_height = static_cast<float>(ymax - ymin) / 20.0f;
 
@@ -917,6 +942,35 @@ namespace dragon::ui
 			off += length;
 
 			if (tag == 0) break;
+			else if (tag == 1) first_root_frame = false;
+			else if (first_root_frame && (tag == 26 || tag == 70))
+			{
+				ScaleformPlacement placement{};
+				if (!parse_swf_place_object(tag, pl, length, placement)) continue;
+				if ((pl[0] & 1) && out.root_instances.count(placement.depth))
+				{
+					auto& current = out.root_instances.at(placement.depth);
+					if (placement.has_char) { current.has_char = true; current.char_id = placement.char_id; }
+					if (!placement.class_name.empty()) current.class_name = placement.class_name;
+					if (placement.has_matrix)
+					{
+						current.tx = placement.tx; current.ty = placement.ty;
+						current.sx = placement.sx; current.sy = placement.sy;
+					}
+					if (placement.has_cxform)
+					{
+						current.mul_r = placement.mul_r; current.mul_g = placement.mul_g;
+						current.mul_b = placement.mul_b; current.mul_a = placement.mul_a;
+					}
+					if (placement.is_clip_mask) current.is_clip_mask = true;
+					if (placement.blend_mode) current.blend_mode = placement.blend_mode;
+				}
+				else out.root_instances[placement.depth] = std::move(placement);
+			}
+			else if (first_root_frame && tag == 28 && length >= 2)
+				out.root_instances.erase(rd_u16(pl));
+			else if (first_root_frame && tag == 5 && length >= 4)
+				out.root_instances.erase(rd_u16(pl + 2));
 			else if (tag == 82) ++out.do_abc_tag_count;
 			else if (tag == 2 || tag == 22 || tag == 32 || tag == 83) ++out.define_shape_tag_count;
 			else if (tag == 37) ++out.define_edit_text_tag_count;
@@ -970,6 +1024,7 @@ namespace dragon::ui
 						std::string name(reinterpret_cast<const char*>(pl + start), p - start);
 						++p;
 						out.exports_by_name[name] = cid;
+						if (tag == 76 && cid) out.symbol_classes[name] = cid;
 					}
 				}
 			}
@@ -1148,10 +1203,14 @@ namespace dragon::ui
 		{
 			std::vector<std::string> origins;
 			std::vector<std::string> notes;
-			codologin_gfx_.emit_export("loginView", fb_w, fb_h, assets, out, false, &origins, &notes);
+			codologin_gfx_.emit_export("loginView", fb_w, fb_h, assets, out, false,
+				logged_login_unfinished_ ? nullptr : &origins, logged_login_unfinished_ ? nullptr : &notes);
 			if (!logged_login_unfinished_)
 			{
 				logged_login_unfinished_ = true;
+				for (const auto& cmd : out)
+					platform::log_info("[UI][LAYOUT] loginView %s screen=(%.1f,%.1f %.1fx%.1f) framebuffer=%dx%d",
+						cmd.texture ? cmd.texture->name.c_str() : "(solid)", cmd.x, cmd.y, cmd.w, cmd.h, fb_w, fb_h);
 				for (const auto& o : origins)
 					platform::log_info("[UI][SOURCE] loginView layer: %s", o.c_str());
 				for (const auto& n : notes)

@@ -12,6 +12,7 @@
 #include "../assets/asset_manager.hpp"
 #include "../gfx/renderer.hpp"
 
+#include <map>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -134,6 +135,7 @@ namespace dragon::ui
 	{
 		std::string rawfile_name;
 		std::string source_zone;
+		float stage_x = 0.0f, stage_y = 0.0f;
 		float stage_width = 1280.0f;
 		float stage_height = 960.0f;
 		std::uint8_t swf_version = 0;
@@ -143,6 +145,10 @@ namespace dragon::ui
 		std::unordered_map<std::uint32_t, ScaleformExternalImage> external_images;
 		std::unordered_map<std::uint16_t, ScaleformSprite> sprites;
 		std::unordered_map<std::string, std::uint16_t> exports_by_name;
+
+		// Explicit first-frame instances on the movie timeline, keyed by depth.
+		std::map<std::uint16_t, ScaleformPlacement> root_instances;
+		std::unordered_map<std::string, std::uint16_t> symbol_classes;
 
 		bool loaded() const { return !rawfile_name.empty() && stage_width > 0.0f && stage_height > 0.0f; }
 
