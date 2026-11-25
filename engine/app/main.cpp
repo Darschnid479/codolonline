@@ -452,7 +452,7 @@ int main(int argc, char** argv)
 			? std::clamp(stage_elapsed_sec / 1.5f, 0.05f, 1.0f)
 			: std::clamp(opt.load_progress, 0.0f, 1.0f);
 		const std::string load_map_name = !opt.initial_map.empty() ? opt.initial_map : session.active_map_name;
-		session.ui.build_stage_cmds(stage, opt.width, opt.height, load_prog, session.assets, ui_cmds, load_map_name);
+		session.ui.build_stage_cmds(stage, renderer->draw_width(), renderer->draw_height(), load_prog, session.assets, ui_cmds, load_map_name);
 
 		// Render frame
 		dragon::gfx::RenderFrameParams rp;

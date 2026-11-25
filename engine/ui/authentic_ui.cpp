@@ -193,7 +193,7 @@ namespace dragon::ui
 			return true;
 		}
 
-		bool parse_swf_place_object(std::uint16_t tag, const std::uint8_t* p, std::size_t len, ScaleformPlacement& out)
+		bool parse_swf_place_object(std::uint16_t tag, const std::uint8_t* p, std::size_t len, bool gfx_movie, ScaleformPlacement& out)
 		{
 			if (len < 3) return false;
 			std::size_t pos = 0;
@@ -215,7 +215,8 @@ namespace dragon::ui
 			const bool has_name = (fl & 0x20) != 0;
 			const bool has_clip = (fl & 0x40) != 0;
 
-			if (tag == 70 && ((fl2 & 0x08) || ((fl2 & 0x10) && has_char)))
+			// GFx external image placements store the character ID directly after depth.
+			if (tag == 70 && ((fl2 & 0x08) || (!gfx_movie && (fl2 & 0x10) && has_char)))
 			{
 				const std::size_t start = pos;
 				while (pos < len && p[pos] != 0) ++pos;
@@ -946,7 +947,7 @@ namespace dragon::ui
 			else if (first_root_frame && (tag == 26 || tag == 70))
 			{
 				ScaleformPlacement placement{};
-				if (!parse_swf_place_object(tag, pl, length, placement)) continue;
+				if (!parse_swf_place_object(tag, pl, length, bytes[0] == 'G', placement)) continue;
 				if ((pl[0] & 1) && out.root_instances.count(placement.depth))
 				{
 					auto& current = out.root_instances.at(placement.depth);
@@ -1054,7 +1055,7 @@ namespace dragon::ui
 					if (stag == 26 || stag == 70)
 					{
 						ScaleformPlacement place{};
-						if (parse_swf_place_object(stag, spl, slen, place))
+						if (parse_swf_place_object(stag, spl, slen, bytes[0] == 'G', place))
 							sp.frame0_places.push_back(std::move(place));
 					}
 				}

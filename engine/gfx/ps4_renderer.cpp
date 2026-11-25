@@ -292,6 +292,10 @@ namespace dragon::gfx
 				return true;
 			}
 
+			int draw_width() const override { return use_piglet_gpu_ ? out_w_ : sw_rast_.width(); }
+
+			int draw_height() const override { return use_piglet_gpu_ ? out_h_ : sw_rast_.height(); }
+
 			void shutdown() override
 			{
 				if (use_piglet_gpu_)

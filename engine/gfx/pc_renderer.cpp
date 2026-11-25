@@ -15,6 +15,10 @@ namespace dragon::gfx
 				return rast_.init(width > 0 ? width : 1280, height > 0 ? height : 720, 0);
 			}
 
+			int draw_width() const override { return rast_.width(); }
+
+			int draw_height() const override { return rast_.height(); }
+
 			void shutdown() override
 			{
 				rast_.shutdown();

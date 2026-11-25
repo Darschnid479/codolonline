@@ -89,6 +89,8 @@ namespace dragon::gfx
 	{
 	public:
 		virtual ~IRenderBackend() = default;
+		virtual int draw_width() const = 0;
+		virtual int draw_height() const = 0;
 		virtual bool init(int width, int height) = 0;
 		virtual void shutdown() = 0;
 		virtual bool upload_scene(const world::WorldScene& scene) = 0;
