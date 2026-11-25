@@ -17,6 +17,31 @@
 
 namespace dragon::gfx
 {
+	enum class UiBlendMode : std::uint8_t
+	{
+		Alpha = 0,    // Standard straight-alpha src-over
+		Additive = 1, // SWF BlendMode 8 (Add)
+		Opaque = 2    // Copy RGB directly
+	};
+
+	struct UiDrawCmd
+	{
+		float x = 0.0f;
+		float y = 0.0f;
+		float w = 0.0f;
+		float h = 0.0f;
+		float u0 = 0.0f;
+		float v0 = 0.0f;
+		float u1 = 1.0f;
+		float v1 = 1.0f;
+		float r = 1.0f;
+		float g = 1.0f;
+		float b = 1.0f;
+		float a = 1.0f;
+		UiBlendMode blend = UiBlendMode::Alpha;
+		const assets::DecodedTexture* texture = nullptr; // nullptr => solid rect
+	};
+
 	struct RenderFrameParams
 	{
 		math::Vec3 eye{ 0, 0, 64 };
@@ -24,15 +49,22 @@ namespace dragon::gfx
 		float pitch_deg = 0.0f;
 		float fov_deg = 75.0f;
 
+		bool render_3d_scene = true;
 		bool wireframe = false;
 		bool fullbright = false;
 		bool use_lightmap = true;
 		bool draw_static_models = true;
 		bool frustum_cull = true;
-		bool show_hud = true;
+
+		// Explicit developer overlays — all OFF by default so normal startup/gameplay shows only authentic client graphics.
+		bool show_dev_hud = false;
+		bool show_dev_crosshair = false;
+		bool show_dev_boxes = false;
 		bool show_console = false;
-		bool show_crosshair = true;
-		bool show_map_menu = false;
+		bool show_dev_map_menu = false;
+
+		// Authentic 2D UI draw list sourced from original client assets (splash.bmp, IW menuDef_t, Scaleform GFx, Font_s)
+		const std::vector<UiDrawCmd>* ui_cmds = nullptr;
 
 		std::string map_name;
 		std::string gametype;

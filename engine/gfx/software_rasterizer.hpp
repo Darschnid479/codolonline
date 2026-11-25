@@ -59,6 +59,7 @@ namespace dragon::gfx
 		};
 
 		void clear_sky_and_depth(float pitch_deg);
+		void clear_solid_black();
 		void submit_triangle(const world::RenderVertex& v0, const world::RenderVertex& v1, const world::RenderVertex& v2,
 			const math::Mat4& vp, const math::Vec3& sun_dir, bool fullbright, bool wireframe,
 			const assets::DecodedTexture* diffuse, const assets::DecodedTexture* lightmap, bool alpha_test,
@@ -67,6 +68,7 @@ namespace dragon::gfx
 		void draw_world_box(const math::Vec3& mins, const math::Vec3& maxs, const math::Mat4& vp, std::uint32_t bgra);
 		void draw_line_2d(int x0, int y0, int x1, int y1, std::uint32_t bgra);
 		void draw_rect_alpha(int x, int y, int w, int h, std::uint32_t bgra, std::uint8_t alpha);
+		void draw_ui_cmd(const UiDrawCmd& cmd);
 		void draw_text(int x, int y, const std::string& text, std::uint32_t bgra, int scale = 1);
 		void draw_hud(const world::WorldScene* scene, const RenderFrameParams& params, const platform::PerfMetrics& metrics);
 

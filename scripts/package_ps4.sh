@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+GAME_DIR="${1:-${CODOL_GAME_DIR:-/home/antigravity/codol-game/extracted/codol-classic}}"
 LOG="$ROOT/logs/package_ps4.log"
 mkdir -p "$ROOT/logs" "$ROOT/dist"
 
@@ -15,24 +16,36 @@ if [ -x "$ROOT/toolchains/liborbispkg/PkgTool.Core" ]; then
     PKGTOOL="$ROOT/toolchains/liborbispkg/PkgTool.Core"
 fi
 STAGE="$ROOT/build-ps4/pkg_stage"
+LOCAL_ICON="$ROOT/build-ps4/sce_sys/icon0.png"
 TITLE_ID="${DRAGON_TITLE_ID:-DRGN00113}"
-TITLE="${DRAGON_TITLE:-Project Dragon - COD Online Native}"
+TITLE="${DRAGON_TITLE:-Call of Duty Online}"
 VERSION="${DRAGON_VERSION:-01.00}"
 CONTENT_ID="IV0000-${TITLE_ID}_00-PROJECTDRAGON000"
 
 {
     echo "=== Project Dragon PS4 PKG Packaging ($(date -u)) ==="
-    echo "Using PkgTool: $PKGTOOL"
+    echo "Using PkgTool : $PKGTOOL"
+    echo "Game data dir : $GAME_DIR"
     if [ ! -f "$ROOT/build-ps4/eboot.bin" ]; then
         echo "ERROR: build-ps4/eboot.bin not found. Run scripts/build_ps4.sh first." >&2
         exit 1
     fi
+    if [ ! -f "$GAME_DIR/codoMP_client_shipRetail.exe" ]; then
+        echo "ERROR: Original client executable not found: $GAME_DIR/codoMP_client_shipRetail.exe" >&2
+        echo "Pass your Call of Duty Online 1.1.1.13 directory as the first argument or set CODOL_GAME_DIR" >&2
+        echo "so the authentic application icon (RT_GROUP_ICON ID 1 / RT_ICON ID 5) can be extracted locally." >&2
+        exit 1
+    fi
 
     rm -rf "$STAGE"
-    mkdir -p "$STAGE/sce_sys/about" "$STAGE/sce_module"
+    mkdir -p "$STAGE/sce_sys/about" "$STAGE/sce_module" "$ROOT/build-ps4/sce_sys"
+
+    # Extract authentic 512x512 RGBA icon0.png locally from codoMP_client_shipRetail.exe (preserving proportions & alpha)
+    python3 "$ROOT/tools/dragon_pe_inspect/extract_ps4_icon.py" \
+        "$GAME_DIR/codoMP_client_shipRetail.exe" "$LOCAL_ICON"
 
     cp "$ROOT/build-ps4/eboot.bin" "$STAGE/eboot.bin"
-    cp "$ROOT/ps4/sce_sys/icon0.png" "$STAGE/sce_sys/icon0.png"
+    cp "$LOCAL_ICON" "$STAGE/sce_sys/icon0.png"
     cp "$OO_PS4_TOOLCHAIN/samples/piglet/sce_sys/about/right.sprx" "$STAGE/sce_sys/about/right.sprx"
     cp "$OO_PS4_TOOLCHAIN/samples/piglet/sce_module/"*.prx "$STAGE/sce_module/"
 
@@ -64,4 +77,5 @@ hdr = open(sys.argv[1], "rb").read(16)
 assert hdr[:4] == b"\x7fCNT", f"Invalid PS4 PKG magic: {hdr[:4]!r}"
 print("PS4 PKG magic verified: 0x7F 'C' 'N' 'T' (PlayStation 4 Content Package)")
 PY
+    "$PKGTOOL" pkg_validate "$PKG"
 } 2>&1 | tee "$LOG"

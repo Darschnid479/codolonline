@@ -83,6 +83,13 @@ namespace dragon::gfx
 		}
 	}
 
+	void SoftwareRasterizer::clear_solid_black()
+	{
+		const std::uint32_t black = pack_bgra(0, 0, 0, 255);
+		std::fill(color_buf_.begin(), color_buf_.end(), black);
+		std::fill(depth_buf_.begin(), depth_buf_.end(), 0.0f);
+	}
+
 	void SoftwareRasterizer::submit_triangle(
 		const world::RenderVertex& v0, const world::RenderVertex& v1, const world::RenderVertex& v2,
 		const math::Mat4& vp, const math::Vec3& sun_dir, bool fullbright, bool wireframe,
@@ -408,6 +415,127 @@ namespace dragon::gfx
 		}
 	}
 
+	void SoftwareRasterizer::draw_ui_cmd(const UiDrawCmd& cmd)
+	{
+		if (cmd.w <= 0.0f || cmd.h <= 0.0f || cmd.a <= 0.0f) return;
+
+		const int x0 = std::max(0, static_cast<int>(std::floor(cmd.x)));
+		const int y0 = std::max(0, static_cast<int>(std::floor(cmd.y)));
+		const int x1 = std::min(width_, static_cast<int>(std::ceil(cmd.x + cmd.w)));
+		const int y1 = std::min(height_, static_cast<int>(std::ceil(cmd.y + cmd.h)));
+		if (x0 >= x1 || y0 >= y1) return;
+
+		const auto* tex = (cmd.texture && cmd.texture->is_valid()) ? cmd.texture : nullptr;
+		const float inv_w = 1.0f / cmd.w;
+		const float inv_h = 1.0f / cmd.h;
+		const float du = cmd.u1 - cmd.u0;
+		const float dv = cmd.v1 - cmd.v0;
+
+		for (int py = y0; py < y1; ++py)
+		{
+			std::uint32_t* row = color_buf_.data() + static_cast<std::size_t>(py) * width_;
+			const float fy = ((static_cast<float>(py) + 0.5f) - cmd.y) * inv_h;
+			const float v = cmd.v0 + fy * dv;
+
+			for (int px = x0; px < x1; ++px)
+			{
+				float sr = cmd.r * 255.0f;
+				float sg = cmd.g * 255.0f;
+				float sb = cmd.b * 255.0f;
+				float sa = cmd.a;
+
+				if (tex)
+				{
+					const float fx = ((static_cast<float>(px) + 0.5f) - cmd.x) * inv_w;
+					const float u = cmd.u0 + fx * du;
+					const float tx = std::clamp(u * static_cast<float>(tex->width) - 0.5f, 0.0f, static_cast<float>(tex->width - 1));
+					const float ty = std::clamp(v * static_cast<float>(tex->height) - 0.5f, 0.0f, static_cast<float>(tex->height - 1));
+					const int ix0 = static_cast<int>(std::floor(tx));
+					const int iy0 = static_cast<int>(std::floor(ty));
+					const int ix1 = std::min(tex->width - 1, ix0 + 1);
+					const int iy1 = std::min(tex->height - 1, iy0 + 1);
+					const float wx = tx - static_cast<float>(ix0);
+					const float wy = ty - static_cast<float>(iy0);
+
+					auto sample_pm = [&](int sx, int sy, float& pr, float& pg, float& pb, float& pa) {
+						const std::uint8_t* p = &tex->rgba[(static_cast<std::size_t>(sy) * tex->width + sx) * 4];
+						const float a = static_cast<float>(p[3]) * (1.0f / 255.0f);
+						pr = static_cast<float>(p[0]) * a;
+						pg = static_cast<float>(p[1]) * a;
+						pb = static_cast<float>(p[2]) * a;
+						pa = a;
+					};
+					float r00, g00, b00, a00, r10, g10, b10, a10;
+					float r01, g01, b01, a01, r11, g11, b11, a11;
+					sample_pm(ix0, iy0, r00, g00, b00, a00);
+					sample_pm(ix1, iy0, r10, g10, b10, a10);
+					sample_pm(ix0, iy1, r01, g01, b01, a01);
+					sample_pm(ix1, iy1, r11, g11, b11, a11);
+
+					const float w00 = (1.0f - wx) * (1.0f - wy);
+					const float w10 = wx * (1.0f - wy);
+					const float w01 = (1.0f - wx) * wy;
+					const float w11 = wx * wy;
+					const float pa = a00 * w00 + a10 * w10 + a01 * w01 + a11 * w11;
+					const float pr = r00 * w00 + r10 * w10 + r01 * w01 + r11 * w11;
+					const float pg = g00 * w00 + g10 * w10 + g01 * w01 + g11 * w11;
+					const float pb = b00 * w00 + b10 * w10 + b01 * w01 + b11 * w11;
+
+					if (cmd.blend == UiBlendMode::Opaque)
+					{
+						const float inv_a = pa > 1e-4f ? (1.0f / pa) : 0.0f;
+						sr = pr * inv_a * cmd.r;
+						sg = pg * inv_a * cmd.g;
+						sb = pb * inv_a * cmd.b;
+						sa = 1.0f;
+					}
+					else
+					{
+						if (pa <= 1e-4f) continue;
+						const float inv_a = 1.0f / pa;
+						sr = pr * inv_a * cmd.r;
+						sg = pg * inv_a * cmd.g;
+						sb = pb * inv_a * cmd.b;
+						sa = std::clamp(pa * cmd.a, 0.0f, 1.0f);
+					}
+				}
+				else
+				{
+					sa = std::clamp(sa, 0.0f, 1.0f);
+				}
+
+				if (sa <= 1e-4f) continue;
+
+				const std::uint32_t dst = row[px];
+				const float dr = static_cast<float>((dst >> 16) & 0xFF);
+				const float dg = static_cast<float>((dst >> 8) & 0xFF);
+				const float db = static_cast<float>(dst & 0xFF);
+				float or_, og_, ob_;
+				if (cmd.blend == UiBlendMode::Opaque)
+				{
+					or_ = sr; og_ = sg; ob_ = sb;
+				}
+				else if (cmd.blend == UiBlendMode::Additive)
+				{
+					or_ = dr + sr * sa;
+					og_ = dg + sg * sa;
+					ob_ = db + sb * sa;
+				}
+				else
+				{
+					const float inv = 1.0f - sa;
+					or_ = sr * sa + dr * inv;
+					og_ = sg * sa + dg * inv;
+					ob_ = sb * sa + db * inv;
+				}
+				row[px] = pack_bgra(
+					static_cast<std::uint8_t>(std::clamp(or_, 0.0f, 255.0f)),
+					static_cast<std::uint8_t>(std::clamp(og_, 0.0f, 255.0f)),
+					static_cast<std::uint8_t>(std::clamp(ob_, 0.0f, 255.0f)));
+			}
+		}
+	}
+
 	void SoftwareRasterizer::draw_text(int x, int y, const std::string& text, std::uint32_t bgra, int scale)
 	{
 		int cx = x;
@@ -439,7 +567,15 @@ namespace dragon::gfx
 
 	void SoftwareRasterizer::draw_hud(const world::WorldScene* scene, const RenderFrameParams& params, const platform::PerfMetrics& metrics)
 	{
-		if (params.show_crosshair && !params.show_map_menu)
+		// 1. Authentic client 2D UI layers (splash.bmp, IW menuDef_t, Scaleform GFx sprites, Font_s)
+		if (params.ui_cmds)
+		{
+			for (const auto& cmd : *params.ui_cmds)
+				draw_ui_cmd(cmd);
+		}
+
+		// 2. Explicit developer overlays (all OFF by default — never shown during normal authentic startup/gameplay)
+		if (params.show_dev_crosshair && !params.show_dev_map_menu)
 		{
 			const int cx = width_ / 2;
 			const int cy = height_ / 2;
@@ -450,15 +586,14 @@ namespace dragon::gfx
 			draw_line_2d(cx, cy + 3, cx, cy + 10, ch_col);
 		}
 
-		if (params.show_hud)
+		if (params.show_dev_hud)
 		{
 			const int scale = width_ >= 1600 ? 2 : 1;
 			const int lh = 11 * scale;
-			// Top telemetry banner
 			draw_rect_alpha(8, 8, width_ - 16, lh * 3 + 12, pack_bgra(10, 14, 20), 175);
 			char line1[256];
 			std::snprintf(line1, sizeof(line1),
-				"PROJECT DRAGON [CODOL 1.1.1.13 NATIVE] | MAP: %s (%s) | GPU: %s",
+				"[DEV HUD] MAP: %s (%s) | GPU: %s",
 				params.map_name.empty() ? "NONE" : params.map_name.c_str(),
 				params.gametype.c_str(),
 				metrics.active_gpu_backend.c_str());
@@ -475,19 +610,18 @@ namespace dragon::gfx
 			if (scene)
 			{
 				std::snprintf(line3, sizeof(line3),
-					"WORLD: %u verts, %u/%u textured surfs, %u lightmaps, %u props | [OPTIONS] Map Menu  [TOUCHPAD] Console",
+					"WORLD: %u verts, %u/%u textured surfs, %u lightmaps, %u props | [L1+R1+TOUCHPAD] Dev Map Selector",
 					scene->raw_world_vertex_count, scene->resolved_textured_surfaces, scene->raw_surface_count,
 					static_cast<unsigned>(scene->lightmaps.size()), scene->decoded_static_model_instances);
 			}
 			else
 			{
-				std::snprintf(line3, sizeof(line3), "No CODOL map loaded. Place CODOL 1.1.1.13 files in /data/codol or /usb0/codol");
+				std::snprintf(line3, sizeof(line3), "No 3D world loaded | Place CODOL 1.1.1.13 files in /data/codol or /usb0/codol");
 			}
 			draw_text(16, 14 + lh * 2, line3, pack_bgra(165, 225, 175), scale);
 
-			// Bottom-right weapon & ammo HUD (dynamically sized to fit full string cleanly)
 			char wline[128];
-			std::snprintf(wline, sizeof(wline), "WPN: %s%s", params.weapon_name.c_str(), params.reloading ? " [RELOADING]" : "");
+			std::snprintf(wline, sizeof(wline), "[DEV] WPN: %s%s", params.weapon_name.c_str(), params.reloading ? " [RELOADING]" : "");
 			char aline[128];
 			std::snprintf(aline, sizeof(aline), "AMMO: %d / %d  |  HP: %d  |  SCORE: %d",
 				params.ammo_clip, params.ammo_reserve, params.health, params.score);
@@ -503,7 +637,7 @@ namespace dragon::gfx
 		{
 			const int ch = height_ / 2;
 			draw_rect_alpha(12, 76, width_ - 24, ch, pack_bgra(8, 10, 14), 220);
-			draw_text(20, 82, "=== PROJECT DRAGON DEBUG CONSOLE ===", pack_bgra(255, 160, 40), 1);
+			draw_text(20, 82, "=== [DEV TOOL] DEBUG CONSOLE ===", pack_bgra(255, 160, 40), 1);
 			int y = 98;
 			for (const auto& l : params.console_lines)
 			{
@@ -513,14 +647,14 @@ namespace dragon::gfx
 			}
 		}
 
-		if (params.show_map_menu && !params.menu_items.empty())
+		if (params.show_dev_map_menu && !params.menu_items.empty())
 		{
 			const int mw = std::min(width_ - 64, 560);
 			const int mh = std::min(height_ - 120, 380);
 			const int mx = (width_ - mw) / 2;
 			const int my = (height_ - mh) / 2;
 			draw_rect_alpha(mx, my, mw, mh, pack_bgra(12, 16, 24), 235);
-			draw_text(mx + 16, my + 12, "SELECT CALL OF DUTY ONLINE MAP (D-PAD + X)", pack_bgra(255, 195, 50), 1);
+			draw_text(mx + 16, my + 12, "[DEV TOOL] MAP SELECTOR (D-PAD + X, CIRCLE=CLOSE)", pack_bgra(255, 195, 50), 1);
 			const int visible_rows = (mh - 42) / 14;
 			const int start_row = std::max(0, params.menu_selected - visible_rows / 2);
 			for (int i = 0; i < visible_rows && (start_row + i) < static_cast<int>(params.menu_items.size()); ++i)
@@ -537,12 +671,23 @@ namespace dragon::gfx
 	void SoftwareRasterizer::render(const world::WorldScene* scene, const RenderFrameParams& params, platform::PerfMetrics& metrics)
 	{
 		const std::uint64_t t_start = platform::time_now_ns();
-		clear_sky_and_depth(params.pitch_deg);
-
 		frame_tris_.clear();
 		metrics.visible_surfaces = 0;
 		metrics.drawn_triangles = 0;
 		metrics.drawn_models = 0;
+		metrics.cull_ms = 0.0;
+
+		if (!params.render_3d_scene || !scene || scene->vertices.empty())
+		{
+			clear_solid_black();
+			draw_hud(scene, params, metrics);
+			const std::uint64_t t_end = platform::time_now_ns();
+			metrics.render_ms = static_cast<double>(t_end - t_start) * 1e-6;
+			metrics.frame_ms = metrics.render_ms;
+			return;
+		}
+
+		clear_sky_and_depth(params.pitch_deg);
 
 		math::Vec3 fwd, right, up;
 		math::angles_to_basis(params.yaw_deg, params.pitch_deg, fwd, right, up);
@@ -553,7 +698,6 @@ namespace dragon::gfx
 		const math::Frustum frustum = math::Frustum::from_view_proj(vp);
 
 		const std::uint64_t t_cull0 = platform::time_now_ns();
-		if (scene && !scene->vertices.empty())
 		{
 			std::vector<const world::WorldSurface*> vis_world;
 			std::vector<const world::StaticModelMesh*> vis_models;
@@ -628,21 +772,24 @@ namespace dragon::gfx
 			}
 		}
 
-		// Draw active offline bots & bullet impact markers in 3D
-		if (params.bots)
+		// Explicit dev debug boxes for bots & impacts (OFF by default — not authentic character XModels)
+		if (params.show_dev_boxes)
 		{
-			for (const auto& bot : *params.bots)
+			if (params.bots)
 			{
-				if (!bot.alive) continue;
-				const std::uint32_t col = bot.team == 0 ? pack_bgra(60, 180, 255) : pack_bgra(255, 70, 60);
-				draw_world_box(bot.origin + math::Vec3{ -14, -14, 0 }, bot.origin + math::Vec3{ 14, 14, 68 }, vp, col);
+				for (const auto& bot : *params.bots)
+				{
+					if (!bot.alive) continue;
+					const std::uint32_t col = bot.team == 0 ? pack_bgra(60, 180, 255) : pack_bgra(255, 70, 60);
+					draw_world_box(bot.origin + math::Vec3{ -14, -14, 0 }, bot.origin + math::Vec3{ 14, 14, 68 }, vp, col);
+				}
 			}
-		}
-		if (params.impacts)
-		{
-			const std::uint32_t scol = pack_bgra(255, 220, 60);
-			for (const auto& imp : *params.impacts)
-				draw_world_box(imp.pos - math::Vec3{ 4, 4, 4 }, imp.pos + math::Vec3{ 4, 4, 4 }, vp, scol);
+			if (params.impacts)
+			{
+				const std::uint32_t scol = pack_bgra(255, 220, 60);
+				for (const auto& imp : *params.impacts)
+					draw_world_box(imp.pos - math::Vec3{ 4, 4, 4 }, imp.pos + math::Vec3{ 4, 4, 4 }, vp, scol);
+			}
 		}
 
 		const std::uint64_t t_rast1 = platform::time_now_ns();

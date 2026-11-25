@@ -71,9 +71,12 @@ namespace dragon::gfx
 			void (*glUniform3f)(GLint, GLfloat, GLfloat, GLfloat) = nullptr;
 			void (*glUniform1i)(GLint, GLint) = nullptr;
 			void (*glUniform1f)(GLint, GLfloat) = nullptr;
+			void (*glUniform4f)(GLint, GLfloat, GLfloat, GLfloat, GLfloat) = nullptr;
+			void (*glBlendFunc)(GLenum, GLenum) = nullptr;
 			void (*glEnableVertexAttribArray)(GLuint) = nullptr;
 			void (*glVertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*) = nullptr;
 			void (*glDrawElements)(GLenum, GLsizei, GLenum, const void*) = nullptr;
+			void (*glDrawArrays)(GLenum, GLint, GLsizei) = nullptr;
 
 			template <typename Fn>
 			bool resolve(int32_t mod, const char* name, Fn& out)
@@ -171,9 +174,12 @@ namespace dragon::gfx
 				ok &= resolve(mod_piglet, "glUniform3f", glUniform3f);
 				ok &= resolve(mod_piglet, "glUniform1i", glUniform1i);
 				ok &= resolve(mod_piglet, "glUniform1f", glUniform1f);
+				ok &= resolve(mod_piglet, "glUniform4f", glUniform4f);
+				ok &= resolve(mod_piglet, "glBlendFunc", glBlendFunc);
 				ok &= resolve(mod_piglet, "glEnableVertexAttribArray", glEnableVertexAttribArray);
 				ok &= resolve(mod_piglet, "glVertexAttribPointer", glVertexAttribPointer);
 				ok &= resolve(mod_piglet, "glDrawElements", glDrawElements);
+				ok &= resolve(mod_piglet, "glDrawArrays", glDrawArrays);
 				return ok;
 			}
 		};
@@ -233,6 +239,26 @@ namespace dragon::gfx
 			}
 		)";
 
+		constexpr const char* kUiVertShader = R"(
+			attribute vec2 aPos;
+			attribute vec2 aUV;
+			varying vec2 vUV;
+			void main() {
+				gl_Position = vec4(aPos, 0.0, 1.0);
+				vUV = aUV;
+			}
+		)";
+
+		constexpr const char* kUiFragShader = R"(
+			precision mediump float;
+			uniform sampler2D uTex;
+			uniform vec4 uColor;
+			varying vec2 vUV;
+			void main() {
+				gl_FragColor = texture2D(uTex, vUV) * uColor;
+			}
+		)";
+
 		// Native PS4 Renderer supporting Hardware Piglet GLES2 + Automatic Native VideoOut Direct-Memory Scanout
 		class Ps4NativeRenderer final : public IRenderBackend
 		{
@@ -271,6 +297,8 @@ namespace dragon::gfx
 				if (use_piglet_gpu_)
 				{
 					destroy_gpu_scene();
+					if (ui_vbo_) { gl_.glDeleteBuffers(1, &ui_vbo_); ui_vbo_ = 0; }
+					if (ui_program_) { gl_.glDeleteProgram(ui_program_); ui_program_ = 0; }
 					if (program_) gl_.glDeleteProgram(program_);
 					if (white_tex_) gl_.glDeleteTextures(1, &white_tex_);
 					if (egl_display_ != EGL_NO_DISPLAY)
@@ -477,18 +505,51 @@ namespace dragon::gfx
 				loc_ulm_ = gl_.glGetUniformLocation(program_, "uUseLightmap");
 				loc_fb_  = gl_.glGetUniformLocation(program_, "uFullbright");
 
-				// 1x1 white stand-in texture
-				const std::uint8_t white[4] = { 210, 210, 210, 255 };
+				// 1x1 white stand-in texture (255,255,255,255 so UI tint rects stay exact)
+				const std::uint8_t white[4] = { 255, 255, 255, 255 };
 				gl_.glGenTextures(1, &white_tex_);
 				gl_.glBindTexture(GL_TEXTURE_2D, white_tex_);
 				gl_.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
 				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
+				// Compile 2D UI shader program for authentic splash/menu/Scaleform quads
+				const GLuint uvs = compile_sh(GL_VERTEX_SHADER, kUiVertShader);
+				const GLuint ufs = compile_sh(GL_FRAGMENT_SHADER, kUiFragShader);
+				if (uvs && ufs)
+				{
+					ui_program_ = gl_.glCreateProgram();
+					gl_.glAttachShader(ui_program_, uvs);
+					gl_.glAttachShader(ui_program_, ufs);
+					gl_.glLinkProgram(ui_program_);
+					gl_.glDeleteShader(uvs);
+					gl_.glDeleteShader(ufs);
+					GLint ulinked = 0;
+					gl_.glGetProgramiv(ui_program_, GL_LINK_STATUS, &ulinked);
+					if (ulinked)
+					{
+						ui_loc_pos_ = gl_.glGetAttribLocation(ui_program_, "aPos");
+						ui_loc_uv_  = gl_.glGetAttribLocation(ui_program_, "aUV");
+						ui_loc_tex_ = gl_.glGetUniformLocation(ui_program_, "uTex");
+						ui_loc_col_ = gl_.glGetUniformLocation(ui_program_, "uColor");
+						gl_.glGenBuffers(1, &ui_vbo_);
+					}
+					else
+					{
+						gl_.glDeleteProgram(ui_program_);
+						ui_program_ = 0;
+					}
+				}
+				else
+				{
+					if (uvs) gl_.glDeleteShader(uvs);
+					if (ufs) gl_.glDeleteShader(ufs);
+				}
+
 				return true;
 			}
 
-			GLuint upload_or_get_tex(const assets::DecodedTexture* tex)
+			GLuint upload_or_get_tex(const assets::DecodedTexture* tex, bool clamp_edge = false)
 			{
 				if (!tex || !tex->is_valid()) return white_tex_;
 				auto it = gpu_textures_.find(tex);
@@ -498,8 +559,9 @@ namespace dragon::gfx
 				gl_.glBindTexture(GL_TEXTURE_2D, id);
 				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+				const GLint wrap = clamp_edge ? GL_CLAMP_TO_EDGE : GL_REPEAT;
+				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
+				gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap);
 				gl_.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tex->width, tex->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex->rgba.data());
 				gpu_textures_.emplace(tex, id);
 				return id;
@@ -519,8 +581,12 @@ namespace dragon::gfx
 			{
 				const std::uint64_t t0 = platform::time_now_ns();
 				gl_.glViewport(0, 0, out_w_, out_h_);
-				gl_.glClearColor(0.38f, 0.54f, 0.72f, 1.0f);
+				if (params.render_3d_scene && scene && vbo_ && ibo_ && program_)
+					gl_.glClearColor(0.38f, 0.54f, 0.72f, 1.0f);
+				else
+					gl_.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 				gl_.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				gl_.glDisable(GL_BLEND);
 				gl_.glEnable(GL_DEPTH_TEST);
 				gl_.glDepthFunc(GL_LEQUAL);
 				gl_.glEnable(GL_CULL_FACE);
@@ -530,7 +596,7 @@ namespace dragon::gfx
 				metrics.visible_surfaces = 0;
 				metrics.drawn_triangles = 0;
 
-				if (scene && vbo_ && ibo_ && program_)
+				if (params.render_3d_scene && scene && vbo_ && ibo_ && program_)
 				{
 					math::Vec3 fwd, right, up;
 					math::angles_to_basis(params.yaw_deg, params.pitch_deg, fwd, right, up);
@@ -585,6 +651,61 @@ namespace dragon::gfx
 					}
 				}
 
+				// Authentic 2D UI pass (splash.bmp, IW menuDef_t, Scaleform GFx, Font_s)
+				if (ui_program_ && ui_vbo_ && params.ui_cmds && !params.ui_cmds->empty())
+				{
+					gl_.glDisable(GL_DEPTH_TEST);
+					gl_.glDisable(GL_CULL_FACE);
+					gl_.glUseProgram(ui_program_);
+					gl_.glUniform1i(ui_loc_tex_, 0);
+					gl_.glBindBuffer(GL_ARRAY_BUFFER, ui_vbo_);
+					gl_.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+					if (ui_loc_pos_ >= 0) gl_.glEnableVertexAttribArray(static_cast<GLuint>(ui_loc_pos_));
+					if (ui_loc_uv_  >= 0) gl_.glEnableVertexAttribArray(static_cast<GLuint>(ui_loc_uv_));
+
+					const float inv_w = 2.0f / static_cast<float>(out_w_);
+					const float inv_h = 2.0f / static_cast<float>(out_h_);
+					for (const auto& cmd : *params.ui_cmds)
+					{
+						if (cmd.w <= 0.0f || cmd.h <= 0.0f || cmd.a <= 0.0f) continue;
+						const float x0 = cmd.x * inv_w - 1.0f;
+						const float x1 = (cmd.x + cmd.w) * inv_w - 1.0f;
+						const float y0 = 1.0f - cmd.y * inv_h;
+						const float y1 = 1.0f - (cmd.y + cmd.h) * inv_h;
+						const float verts[24] = {
+							x0, y0, cmd.u0, cmd.v0,
+							x1, y0, cmd.u1, cmd.v0,
+							x1, y1, cmd.u1, cmd.v1,
+							x0, y0, cmd.u0, cmd.v0,
+							x1, y1, cmd.u1, cmd.v1,
+							x0, y1, cmd.u0, cmd.v1
+						};
+						gl_.glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
+						if (ui_loc_pos_ >= 0) gl_.glVertexAttribPointer(static_cast<GLuint>(ui_loc_pos_), 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), reinterpret_cast<const void*>(0));
+						if (ui_loc_uv_  >= 0) gl_.glVertexAttribPointer(static_cast<GLuint>(ui_loc_uv_),  2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), reinterpret_cast<const void*>(2 * sizeof(float)));
+
+						if (cmd.blend == UiBlendMode::Opaque)
+						{
+							gl_.glDisable(GL_BLEND);
+						}
+						else if (cmd.blend == UiBlendMode::Additive)
+						{
+							gl_.glEnable(GL_BLEND);
+							gl_.glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+						}
+						else
+						{
+							gl_.glEnable(GL_BLEND);
+							gl_.glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+						}
+						gl_.glActiveTexture(GL_TEXTURE0);
+						gl_.glBindTexture(GL_TEXTURE_2D, cmd.texture ? upload_or_get_tex(cmd.texture, true) : white_tex_);
+						gl_.glUniform4f(ui_loc_col_, cmd.r, cmd.g, cmd.b, cmd.a);
+						gl_.glDrawArrays(GL_TRIANGLES, 0, 6);
+					}
+					gl_.glDisable(GL_BLEND);
+				}
+
 				const std::uint64_t t1 = platform::time_now_ns();
 				gl_.eglSwapBuffers(egl_display_, egl_surface_);
 				const std::uint64_t t2 = platform::time_now_ns();
@@ -631,6 +752,9 @@ namespace dragon::gfx
 			GLuint vbo_ = 0;
 			GLuint ibo_ = 0;
 			GLuint white_tex_ = 0;
+			GLuint ui_program_ = 0;
+			GLuint ui_vbo_ = 0;
+			GLint ui_loc_pos_ = -1, ui_loc_uv_ = -1, ui_loc_tex_ = -1, ui_loc_col_ = -1;
 			GLint loc_pos_ = -1, loc_nrm_ = -1, loc_uv_ = -1, loc_luv_ = -1, loc_col_ = -1;
 			GLint loc_vp_ = -1, loc_diff_ = -1, loc_lmap_ = -1, loc_sun_ = -1, loc_ulm_ = -1, loc_fb_ = -1;
 			std::unordered_map<const assets::DecodedTexture*, GLuint> gpu_textures_;

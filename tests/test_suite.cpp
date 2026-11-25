@@ -3,6 +3,7 @@
 #include "../engine/assets/asset_manager.hpp"
 #include "../engine/gfx/software_rasterizer.hpp"
 #include "../engine/platform/platform.hpp"
+#include "../engine/ui/authentic_ui.hpp"
 #include "../engine/world/bsp_world.hpp"
 #include "../engine/world/collision.hpp"
 #include "../engine/world/entities.hpp"
@@ -211,6 +212,26 @@ namespace
 			dragon::platform::PerfMetrics pm{};
 			rast.render(&ws, rp, pm);
 			check(pm.drawn_triangles > 100, "Rendered real CODOL map geometry (>100 visible triangles)");
+
+			// Authentic UI & startup assets tests
+			dragon::ui::AuthenticUiSystem ui;
+			check(ui.init(mgr), "AuthenticUiSystem mounts original startup & UI assets");
+			check(ui.splash_bmp() && ui.splash_bmp()->width == 800 && ui.splash_bmp()->height == 510,
+				"Loaded original root splash.bmp (800x510)");
+			check(ui.pub_logo_bk2().valid_header && ui.codo_logo_bk2().valid_header,
+				"Inspected Bink 2 intro headers (PUB_logo.bk2 & CODO_logo.bk2)");
+			check(ui.find_font("fonts/bigFont") && ui.find_font("fonts/bigFont")->is_valid(),
+				"Decoded original IW Font_s (fonts/bigFont) from code_post_gfx_mp.ff");
+			check(ui.find_menu("load") && ui.find_menu("load")->items.size() == 3,
+				"Decoded original IW menuDef_t (ui_mp/load.txt -> load) from patch_code_post_gfx_mp.ff");
+
+			std::vector<dragon::gfx::UiDrawCmd> cmds;
+			ui.build_stage_cmds(dragon::ui::StartupStage::LoginTitle, 1280, 720, 1.0f, mgr, cmds);
+			check(cmds.size() >= 3, "Scaleform codologin.gfx loginView emits authentic decoded bitmap layers");
+			cmds.clear();
+			ui.build_stage_cmds(dragon::ui::StartupStage::MainMenuLogo, 1280, 720, 1.0f, mgr, cmds);
+			check(cmds.size() == 3, "Scaleform codo.gfx logoView emits 3 authentic logo bitmap layers");
+
 			rast.shutdown();
 		}
 	}

@@ -31,9 +31,9 @@
 | Subsystem | PS4 Target Status | PC Debug Status | Evidence / Implementation |
 |---|---|---|---|
 | OpenOrbis LLVM-18 Cross-Toolchain + Patched `ps4-link.x` + `check-oelf.cmake` | `COMPILED` | `IMPLEMENTED` | `cmake/openorbis-ps4-toolchain.cmake`, `cmake/ps4-link.x`, `cmake/check-oelf.cmake`. Verified FreeBSD ELF64 `fe10`, **1 RW `PT_LOAD`**, FSELF magic `0x1D3D154F`. |
-| Standalone PS4 `.pkg` Packager (`LibOrbisPkg` on .NET 10) | `COMPILED` | `IMPLEMENTED` | `dist/IV0000-DRGN00113_00-PROJECTDRAGON000.pkg` (`6.4 MiB`), verified `\x7fCNT` magic, `PARAM_SFO`, `ICON0_PNG`, inner/outer PFS. |
-| Native Graphics Init — Piglet GLES2 (`libScePigletv2VSH` + `libSceShaccVSH`) | `COMPILED` | `NOT_IMPLEMENTED` | `engine/gfx/ps4_renderer.cpp`. Dynamically loads `.sprx` via `sceKernelLoadStartModule`/`sceKernelDlsym`; hardware shader path awaits real PS4 test with user-supplied `.sprx` modules. |
-| Native Graphics Fallback — `libSceVideoOut` Direct-Memory 1920×1080 Scanout | `COMPILED` | `IMPLEMENTED` | `engine/gfx/ps4_renderer.cpp` + `engine/gfx/software_rasterizer.cpp`. Zero external `.sprx` requirement; double-buffered direct memory flip queue. |
+| Standalone PS4 `.pkg` Packager (`LibOrbisPkg` on .NET 10) + Local PE Icon Extractor | `COMPILED` | `IMPLEMENTED` | `dist/IV0000-DRGN00113_00-PROJECTDRAGON000.pkg` (`6.9 MiB`), verified `\x7fCNT` magic, `PARAM_SFO` (`Call of Duty Online`), `ICON0_PNG` extracted locally from `codoMP_client_shipRetail.exe` (`RT_GROUP_ICON` ID 1 / `RT_ICON` ID 5, 512×512 RGBA preserving aspect & alpha), 28/28 `pkg_validate` checks OK. |
+| Native Graphics Init — Piglet GLES2 (`libScePigletv2VSH` + `libSceShaccVSH`) | `COMPILED` | `NOT_IMPLEMENTED` | `engine/gfx/ps4_renderer.cpp`. Dynamically loads `.sprx` via `sceKernelLoadStartModule`/`sceKernelDlsym`; includes GLES2 2D UI quad pass for startup/menus; awaits real PS4 test. |
+| Native Graphics Fallback — `libSceVideoOut` Direct-Memory 1920×1080 Scanout | `COMPILED` | `IMPLEMENTED` | `engine/gfx/ps4_renderer.cpp` + `engine/gfx/software_rasterizer.cpp`. Zero external `.sprx` requirement; double-buffered direct memory flip queue + bilinear 2D UI compositor. |
 | Native Vulkan AMD GCN Backend (`ps4-kit` Mesa 26.0.8 + RADV + `ps4_vk_wsi`) | `NOT_IMPLEMENTED` | `NOT_IMPLEMENTED` | Next major GPU milestone: eliminates Sony `.sprx` dependency completely while delivering full native AMD Liverpool GCN hardware rendering. Requires clang 21 sysroot + Mesa 26.0.8 RADV build. |
 | Direct Memory Allocator (`sceKernelAllocateDirectMemory` / `MapDirectMemory`) | `COMPILED` | `IMPLEMENTED` | `engine/platform/platform_ps4.cpp`, `engine/platform/crash_log.cpp` (`MemoryStats` tagged tracking). |
 | POSIX Filesystem & Game Data Discovery (`/data/codol`, `/usb0/codol`, `/usb1/codol`) | `COMPILED` | `IMPLEMENTED` | Avoids broken OpenOrbis musl `std::filesystem` `*at` stubs; pure POSIX `fopen`/`fseeko`/`opendir`/`readdir`/`stat`. |
@@ -41,7 +41,7 @@
 | DualShock 4 Controller (`libScePad` + `libSceUserService`) | `COMPILED` | `IMPLEMENTED` | `engine/platform/input_ps4.cpp`: analog sticks with deadzones, L2/R2 triggers, D-Pad, OPTIONS/TOUCHPAD, lightbar & rumble hooks. |
 | Native Audio Output (`libSceAudioOut` 48 kHz Stereo S16 Mixer Thread) | `COMPILED` | `IMPLEMENTED` | `engine/platform/audio_ps4.cpp`: dedicated streaming audio thread mixing PCM voices. |
 | Crash Logging & Signal Handler (`SIGSEGV`/`SIGBUS`/`SIGILL`/`SIGABRT`/`SIGFPE`) | `COMPILED` | `IMPLEMENTED` | `engine/platform/crash_log.cpp`: signal-safe crash trace + boot ring buffer to `/data/project_dragon/crash.log`. |
-| Debug Console, Dvar Registry & Frame/Memory Telemetry | `COMPILED` | `IMPLEMENTED` | `engine/platform/debug_console.cpp` + HUD overlay (`FPS`, `frame_ms`, visible surfaces/tris, texture/prop counts). |
+| Explicit Developer Tools (Debug Console, Dev HUD, Dev Map Selector) | `COMPILED` | `IMPLEMENTED` | `engine/platform/debug_console.cpp`. Strictly gated behind explicit dev flags (`--dev-map-menu`, `--dev-hud`, `--dev-boxes`, PS4 `L1+R1+TOUCHPAD` / `TOUCHPAD`) — OFF during normal startup and gameplay. |
 
 ---
 
@@ -51,8 +51,8 @@
 |---|---|---|---|
 | Portable Zero-Dependency Crypto (`SHA-256`, `AES-192-CTR` LE/BE, `RSA-2048-OAEP`, PKCS#1 DER) | `COMPILED` | `IMPLEMENTED` | `third_party/codol_zone_portable/codol_zone/src/crypto_portable.cpp`. Verified against FIPS 180-4, FIPS 197 C.2, ZIP CRC-32, and real `1.1.1.13` signed FastFiles & IWDs. |
 | Runtime Key & Wavelet Table Extraction from User's `codoMP_client_shipRetail.exe` | `COMPILED` | `IMPLEMENTED` | Zero embedded proprietary keys; verified dynamically against supplied `1.1.1.13` executable. |
-| FastFile v334 (`IWff0100` Signed + `IWffu100` Unsigned) Reader & Zone Loader | `COMPILED` | `IMPLEMENTED` | Verified across `dragon_tests` and `dragon_validate` (`docs/COMPATIBILITY_REPORT.md`). |
-| Encrypted `.iwd` Archive Set & Streamed `.iwi` Decoder (DXT1/3/5, RGBA, Wavelet) | `COMPILED` | `IMPLEMENTED` | Mounted 62 IWD image archives (42,221 images); visually verified real decoded textures across 4 diverse maps. |
+| FastFile v334 (`IWff0100` Signed + `IWffu100` Unsigned) Reader & Zone Loader | `COMPILED` | `IMPLEMENTED` | Verified across `dragon_tests` (33/33) and `dragon_validate` (`docs/COMPATIBILITY_REPORT.md`). |
+| Encrypted `.iwd` Archive Set & Streamed `.iwi` Decoder (DXT1/3/5, RGBA, Wavelet) | `COMPILED` | `IMPLEMENTED` | Mounted 62 IWD image archives (42,221 images); visually verified real decoded textures across maps & UI. |
 | Material & Embedded Lightmap Resolution (`Material` / `GfxImage`) | `COMPILED` | `IMPLEMENTED` | 100% textured surface resolution on tested maps; volumetric/additive beam filtering + sRGB lightmap lift. |
 | Automated Asset Validation Tool (`dragon_validate`) | `NOT_IMPLEMENTED` *(PC host tool)* | `IMPLEMENTED` | `tools/dragon_validate/main.cpp` → `docs/COMPATIBILITY_REPORT.md`. |
 
@@ -72,8 +72,10 @@
 | Weapon Systems (`WeaponCompleteDef` metadata, firing, reload, raycast hit detection) | `COMPILED` | `IMPLEMENTED` | Reads real `ASSET_TYPE_WEAPON` headers (`thundergun_zm`, etc.) + fires raycast against ClipMap & bots; next: load `common_mp.ff` weapon catalog, viewmodels, recoil/spread, ADS sights, grenades, killstreaks. |
 | GSC Script Runtime | `COMPILED` | `IMPLEMENTED` | Clean-room cooperative thread VM (`thread`/`wait`/`waittill`/`notify`/`setDvar`) passing unit tests + parsing map `RawFile` scripts; next: full IW4 GSC bytecode/AST coverage & built-in entity method bindings. |
 | Offline Server, Bots & Game Modes (MP / Zombies / Cyborg / Co-op) | `COMPILED` | `IMPLEMENTED` | 20 Hz `OfflineServer` spawning bots along real `MapEnts` `node_pathnode` graphs; next: A* waypoint navigation, combat AI, Zombies wave/mystery-box/perk/round logic, TDM/FFA/S&D/Domination scoring. |
-| Original UI & Menus (`MenuList` / `menuDef_t` / `localizedStrings`) | `NOT_IMPLEMENTED` | `NOT_IMPLEMENTED` | Currently provides clean DualShock 4 map selector & HUD; next: parse original `MenuDef` layouts and localized Chinese/English string tables from `patch_mp.ff` / `ui_mp.ff`. |
-| Audio Decoding (`SoundAliasList` / Miles MP3/WAV / Bink2 `.bk2`) | `NOT_IMPLEMENTED` | `NOT_IMPLEMENTED` | PS4 `libSceAudioOut` hardware output thread is compiled; next: decode real `.iwd` sound banks (WAV/MP3 via dr_mp3/dr_wav) and 3D spatialized weapon/footstep audio. |
+| Authentic Startup & IW Menus (`splash.bmp`, `ASSET_TYPE_FONT`, `ASSET_TYPE_MENU` `ui_mp/load.txt` & `connect`, `localized_code_post_gfx_mp.ff`) | `COMPILED` | `IMPLEMENTED` | `engine/ui/authentic_ui.cpp`: Loads root `splash.bmp` (800×510), 9 IW fonts (`fonts/gamefonts_pc` / `devfonts_pc`), IW menus (`load`, `connect`, `error_*`) with `ScrPlace_ApplyRect` coordinates, and 9,385 GBK localized entries. Visually verified side-by-side on PC Debug. |
+| Scaleform GFx Display-List Logo/Bitmap Renderer (`codologin.gfx`, `codo.gfx`) | `COMPILED` | `IMPLEMENTED` *(static bitmaps only)* | Parses GFX v10 stage (`1280×960`), `DefineExternalImage2`, `ExportAssets`/`SymbolClass`, `DefineSprite`, `PlaceObject2/3` (`Matrix`, `CXFormWithAlpha`, SWF `BlendMode 8` Additive) for `loginView`, `logoView`, `logoCyborgsView`. Visually verified side-by-side on PC Debug. |
+| Scaleform GFx Interactive AS3 Runtime (`DoABC` tag 82), Vector `DefineShape`, CJK `fonts_ingame.gfx`, In-Game `codohud.gfx` | `NOT_IMPLEMENTED` | `NOT_IMPLEMENTED` | Explicitly logged as `[UI][UNFINISHED]` at runtime. Required for full interactive Chinese menus, buttons, and in-game HUD. |
+| Audio & Video Decoding (`SoundAliasList` / Miles MP3/WAV / Bink 2 `KB2i` `PUB_logo.bk2` & `CODO_logo.bk2`) | `NOT_IMPLEMENTED` | `NOT_IMPLEMENTED` | PS4 `libSceAudioOut` hardware output thread is compiled; Bink 2 headers are inspected and logged as `[UI][UNFINISHED]` (`KB2i` decoder `NOT_IMPLEMENTED`). |
 
 ---
 

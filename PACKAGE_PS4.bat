@@ -8,6 +8,14 @@ echo ===========================================================================
 echo  PROJECT DRAGON — PACKAGE STANDALONE PS4 PKG (LibOrbisPkg / PkgTool.Core)
 echo ============================================================================
 
+set "GAME_DIR=%~1"
+if "%GAME_DIR%"=="" if defined CODOL_GAME_DIR set "GAME_DIR=%CODOL_GAME_DIR%"
+if "%GAME_DIR%"=="" (
+    echo Usage: PACKAGE_PS4.bat "C:\Path\To\Call of Duty Online 1.1.1.13"
+    echo Your local codoMP_client_shipRetail.exe is required to extract the authentic PS4 icon0.png.
+    exit /b 1
+)
+
 if not exist build-ps4\eboot.bin (
     echo [INFO] build-ps4\eboot.bin missing — running BUILD_PS4.bat first...
     call BUILD_PS4.bat
@@ -17,7 +25,7 @@ if not exist build-ps4\eboot.bin (
 where wsl >nul 2>&1
 if %errorlevel%==0 (
     echo [INFO] Packaging standalone PS4 PKG via WSL scripts/package_ps4.sh...
-    wsl bash -lc "cd \"$(wslpath '%~dp0')\" && ./scripts/package_ps4.sh"
+    wsl bash -lc "cd \"$(wslpath '%~dp0')\" && ./scripts/package_ps4.sh \"$(wslpath '%GAME_DIR%')\""
     if !errorlevel! neq 0 (
         echo [ERROR] PKG packaging failed. See logs\package_ps4.log
         exit /b 1
@@ -34,9 +42,16 @@ set "TITLE_ID=DRGN00113"
 set "CONTENT_ID=IV0000-DRGN00113_00-PROJECTDRAGON000"
 
 if exist "%STAGE%" rmdir /s /q "%STAGE%"
-mkdir "%STAGE%\sce_sys\about" "%STAGE%\sce_module"
+mkdir "%STAGE%\sce_sys\about" "%STAGE%\sce_module" "build-ps4\sce_sys"
+
+python3 tools\dragon_pe_inspect\extract_ps4_icon.py "%GAME_DIR%\codoMP_client_shipRetail.exe" "build-ps4\sce_sys\icon0.png"
+if !errorlevel! neq 0 (
+    echo [ERROR] Failed to extract authentic icon0.png from "%GAME_DIR%\codoMP_client_shipRetail.exe"
+    exit /b 1
+)
+
 copy /y build-ps4\eboot.bin "%STAGE%\eboot.bin" >nul
-copy /y ps4\sce_sys\icon0.png "%STAGE%\sce_sys\icon0.png" >nul
+copy /y build-ps4\sce_sys\icon0.png "%STAGE%\sce_sys\icon0.png" >nul
 copy /y "%OO_PS4_TOOLCHAIN%\samples\piglet\sce_sys\about\right.sprx" "%STAGE%\sce_sys\about\right.sprx" >nul
 copy /y "%OO_PS4_TOOLCHAIN%\samples\piglet\sce_module\*.prx" "%STAGE%\sce_module\" >nul
 
@@ -48,7 +63,7 @@ copy /y "%OO_PS4_TOOLCHAIN%\samples\piglet\sce_module\*.prx" "%STAGE%\sce_module
 "%TOOLS%\PkgTool.Core.exe" sfo_setentry "%STAGE%\sce_sys\param.sfo" CONTENT_ID --type Utf8 --maxsize 48 --value "%CONTENT_ID%" >> logs\package_ps4.log 2>&1
 "%TOOLS%\PkgTool.Core.exe" sfo_setentry "%STAGE%\sce_sys\param.sfo" DOWNLOAD_DATA_SIZE --type Integer --maxsize 4 --value 0 >> logs\package_ps4.log 2>&1
 "%TOOLS%\PkgTool.Core.exe" sfo_setentry "%STAGE%\sce_sys\param.sfo" SYSTEM_VER --type Integer --maxsize 4 --value 0 >> logs\package_ps4.log 2>&1
-"%TOOLS%\PkgTool.Core.exe" sfo_setentry "%STAGE%\sce_sys\param.sfo" TITLE --type Utf8 --maxsize 128 --value "Project Dragon - COD Online Native" >> logs\package_ps4.log 2>&1
+"%TOOLS%\PkgTool.Core.exe" sfo_setentry "%STAGE%\sce_sys\param.sfo" TITLE --type Utf8 --maxsize 128 --value "Call of Duty Online" >> logs\package_ps4.log 2>&1
 "%TOOLS%\PkgTool.Core.exe" sfo_setentry "%STAGE%\sce_sys\param.sfo" TITLE_ID --type Utf8 --maxsize 12 --value "%TITLE_ID%" >> logs\package_ps4.log 2>&1
 "%TOOLS%\PkgTool.Core.exe" sfo_setentry "%STAGE%\sce_sys\param.sfo" VERSION --type Utf8 --maxsize 8 --value "01.00" >> logs\package_ps4.log 2>&1
 

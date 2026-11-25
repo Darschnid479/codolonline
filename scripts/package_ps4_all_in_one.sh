@@ -29,9 +29,10 @@ if [ -x "$ROOT/toolchains/liborbispkg/PkgTool.Core" ]; then
 fi
 
 TITLE_ID="${DRAGON_TITLE_ID:-DRGN00113}"
-TITLE="${DRAGON_TITLE:-Project Dragon - COD Online Native}"
+TITLE="${DRAGON_TITLE:-Call of Duty Online}"
 VERSION="${DRAGON_VERSION:-01.00}"
 CONTENT_ID="IV0000-${TITLE_ID}_00-PROJECTDRAGON000"
+LOCAL_ICON="$ROOT/build-ps4/sce_sys/icon0.png"
 
 {
     echo "=== Project Dragon ALL-IN-ONE PS4 PKG Packaging ($(date -u)) ==="
@@ -51,10 +52,14 @@ CONTENT_ID="IV0000-${TITLE_ID}_00-PROJECTDRAGON000"
     fi
 
     rm -rf "$STAGE"
-    mkdir -p "$STAGE/sce_sys/about" "$STAGE/sce_module"
+    mkdir -p "$STAGE/sce_sys/about" "$STAGE/sce_module" "$ROOT/build-ps4/sce_sys"
+
+    # Extract authentic 512x512 RGBA icon0.png locally from codoMP_client_shipRetail.exe (preserving proportions & alpha)
+    python3 "$ROOT/tools/dragon_pe_inspect/extract_ps4_icon.py" \
+        "$GAME_DIR/codoMP_client_shipRetail.exe" "$LOCAL_ICON"
 
     cp "$ROOT/build-ps4/eboot.bin" "$STAGE/eboot.bin"
-    cp "$ROOT/ps4/sce_sys/icon0.png" "$STAGE/sce_sys/icon0.png"
+    cp "$LOCAL_ICON" "$STAGE/sce_sys/icon0.png"
     cp "$OO_PS4_TOOLCHAIN/samples/piglet/sce_sys/about/right.sprx" "$STAGE/sce_sys/about/right.sprx"
     cp "$OO_PS4_TOOLCHAIN/samples/piglet/sce_module/"*.prx "$STAGE/sce_module/"
 
@@ -87,11 +92,12 @@ files = [
     ("sce_module/libSceFios2.prx", "sce_module/libSceFios2.prx"),
 ]
 
-# Required key/wavelet table source (read-only; never executed on PS4)
+# Required key/wavelet table source (read-only; never executed on PS4) + original root startup/localization files
 files.append(("codol/codoMP_client_shipRetail.exe", os.path.join(game_dir, "codoMP_client_shipRetail.exe")))
-loc_txt = os.path.join(game_dir, "localization.txt")
-if os.path.isfile(loc_txt):
-    files.append(("codol/localization.txt", loc_txt))
+for root_file in ("localization.txt", "splash.bmp", "logo.bmp"):
+    full = os.path.join(game_dir, root_file)
+    if os.path.isfile(full):
+        files.append(("codol/" + root_file, full))
 
 # Include all FastFiles under client_shipRetail/
 for root_sub in ("client_shipRetail",):

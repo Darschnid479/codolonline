@@ -60,6 +60,7 @@ set(DRAGON_ENGINE_SOURCES
     engine/world/player_movement.cpp
     engine/world/gameplay.cpp
     engine/gfx/software_rasterizer.cpp
+    engine/ui/authentic_ui.cpp
 )
 
 if (DRAGON_PS4)
